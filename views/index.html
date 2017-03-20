@@ -20,11 +20,21 @@
   </head>
   <body>
     <h1>
-      Socket Demo
+      Chart the Stock Market (NOTE: You may need to disable browser's blocking of mixed content in order to view.)
     </h1>
-    <div id="chartcontainer">
-      
+    <div id="chartcontainer">  
     </div>
+    <input type="text" id="symb" />
+    <button onclick="reqNewStock()">
+      Add Symbol
+    </button>
+    <div id="stockButtons">
+           
+    </div>
+  
+    
+    
+    
     <!-- Your web-app is https, so your scripts need to be too -->
     <script src="https://code.jquery.com/jquery-2.2.1.min.js"
             integrity="sha256-gvQgAFzTH6trSrAWoH1iPo9Xc96QxSZ3feW6kem+O00="
@@ -40,9 +50,18 @@
     <script>
       var seriesArr = [];
       
+      ////////// socket code/////////////////////
       var socket = io();  //.connect('https://localhost:8080');
       
       socket.emit('my other event', { my: 'data' });
+      
+        //socket.emit('allstocks', { stocks: stocksArr });
+      // server sends list of all stocks on client connect. 
+      socket.on('allstocks', function (data) {
+        console.log(data);
+        for (var i=0; i<data.stocks.length; i++) 
+          reqNewStock(data.stocks[i]);
+      }); 
       
       socket.on('news', function (data) {
         console.log(data);
@@ -54,27 +73,111 @@
         console.log("broadcast msg recvd");        
       });  
       
-      function dataReady(data) {
-        console.log("data=" + JSON.stringify(data));
-        // !!!!!! NEED TO ADD UNIX TIMESTAMPS TO data ARRAY BEFORE GIVING TO CHART
-        var sObj = { name: 'GOOG', data: data.Positions, tooltip: {valueDecimals: 2} };
-        seriesArr.push(sObj);
-        
+      ////////// chart code //////////////////////////
+      
+      function addDateToData(data) {
+        var cdate = + new Date();
+        var retArr = [];
+        for (var i=0; i<data.length; i++) {
+          var tObj = [ cdate, data[i] ];
+          //console.log("tObj=" + tObj);
+          retArr.push(tObj);
+          cdate = cdate - 86400000;  // subtract a day's worth of seconds.
+          
+          // weekends there are no stock data....so every 5 days, add an extra 2 data points.
+          if ((i % 5) === 0) {
+            retArr.push(tObj);
+            cdate = cdate - 86400000;  // subtract a day's worth of seconds.
+            retArr.push(tObj);
+            cdate = cdate - 86400000;  // subtract a day's worth of seconds.
+          }
+            
+        }
+        return retArr;
+      }
+      
+      function drawChart() {
         Highcharts.stockChart('chartcontainer', {
             rangeSelector: {
-                selected: 1
+                selected: 5
             },
 
             title: {
-                text: 'AAPL Stock Price'
+                text: 'Stock Prices'
             },
 
             series: seriesArr
         });
       }
       
-      $(document).ready(function() {
-          var symbol = "GOOG";
+      function dataReady(data) {
+        //console.log("data=" + JSON.stringify(data));
+        // !!!!!! NEED TO ADD UNIX TIMESTAMPS TO data ARRAY BEFORE GIVING TO CHART
+        var closeArr = data.Elements[0].DataSeries['close'].values;
+        var dataWithDates = addDateToData(closeArr);
+        console.log("dataWithDates=" + dataWithDates);
+        //console.log("num elm=" + data.Elements.length);
+        //console.log("num values=" + data.Elements[0].DataSeries['close'].values.length);
+        
+        var sObj = { name: data.Elements[0].Symbol, data: dataWithDates, tooltip: {valueDecimals: 2} };
+        addStock(sObj);
+        /*
+        seriesArr.push(sObj);
+        
+        drawChart();
+        
+          // now add delete button for stock
+          var bstr = '<button id="' + data.Elements[0].Symbol + '">' + data.Elements[0].Symbol + '</button>';        
+          $("#stockButtons").append(bstr);
+          $("#" + data.Elements[0].Symbol).click(function() {removeStock(data.Elements[0].Symbol)});
+        
+        // let server know new stock was added
+         socket.emit('newstock', { symbol: data.Elements[0].Symbol });
+         */
+      }
+      
+      function addStock(sObj) {
+        seriesArr.push(sObj);
+        
+        drawChart();
+        
+        // now add delete button for stock
+        var bstr = '<button id="' + sObj.name + '">' + sObj.name + '</button>';        
+        $("#stockButtons").append(bstr);
+        $("#" + sObj.name).click(function() {removeStock(sObj.name)});
+        
+        // let server know new stock was added
+        socket.emit('newstock', { symbol: sObj.name });
+      }
+      
+      function removeStock(symb) {
+        console.log("remove symb=" + symb);
+        $("#" + symb).remove();
+        
+        // now remove related obj from SeriesArr
+        for(var i = 0; i < seriesArr.length; i++) {
+            var obj = seriesArr[i];
+
+            if(seriesArr[i].name === symb) {  
+                seriesArr.splice(i, 1);
+                //console.log("seriesArr=" + seriesArr);
+                i--;
+            }
+        }
+        
+        // now refresh chart
+        drawChart();
+      }
+      
+      function reqNewStock(optSymb) {
+          //  req stock historical data
+          var symbol;
+          console.log("optSymb="+optSymb);
+          if (optSymb !== undefined)  // from passed in arg
+            symbol = optSymb
+          else
+            symbol = $("#symb").val();  // from search box
+        
           var parameters = {  
               Normalized: false,
               NumberOfDays: 365,
@@ -89,25 +192,12 @@
             url: url,
             success: dataReady
           });  
-        /////////////////////////////////////////
-  /*      
-          seriesArr = [ { name: 'AAPL', data: [ 1, 2, 3, 4, 5 ], tooltip: {valueDecimals: 2} },
-                        { name: 'IBM', data: [ 6,7,20,9,10 ], tooltip: {valueDecimals: 2} }
-                      ];
-         
-          Highcharts.stockChart('chartcontainer', {
+        
+      }
+      
+      $(document).ready(function() {
+          
 
-            rangeSelector: {
-                selected: 1
-            },
-
-            title: {
-                text: 'AAPL Stock Price'
-            },
-
-            series: seriesArr
-          });
-  */      
       });
       
       
