@@ -53,9 +53,6 @@
       ////////// socket code/////////////////////
       var socket = io();  //.connect('https://localhost:8080');
       
-      socket.emit('my other event', { my: 'data' });
-      
-        //socket.emit('allstocks', { stocks: stocksArr });
       // server sends list of all stocks on client connect. 
       socket.on('allstocks', function (data) {
         console.log(data);
@@ -63,15 +60,36 @@
           reqNewStock(data.stocks[i]);
       }); 
       
-      socket.on('news', function (data) {
-        console.log(data);
-        socket.emit('my other event', { my: 'data' });
-      });  
+      socket.on('newstock', function (data) {
+        console.log(data);         
+        // only add if it doesn't exist already
+        var found = false;
+        for(var i = 0; i < seriesArr.length; i++) {
+          if (seriesArr[i].name === data.symbol)
+            found = true;
+        }
+        if (!found) {
+          console.log("ADDING NEW SYMBOL!");
+          reqNewStock(data.symbol);
+        }
+      }); 
       
-      
-      socket.on('broadcast message', function (data) {
-        console.log("broadcast msg recvd");        
-      });  
+      socket.on('delstock', function (data) {
+        console.log(data);         
+        // only del if it exists
+        var found = false;
+        for(var i = 0; i < seriesArr.length; i++) {
+          if (seriesArr[i].name === data.symbol)
+            found = true;
+        }
+        if (found) {
+          removeStock(data.symbol);
+        }
+      }); 
+                  
+      //socket.on('broadcast message', function (data) {
+      //  console.log("broadcast msg recvd");        
+      //});  
       
       ////////// chart code //////////////////////////
       
@@ -97,6 +115,7 @@
       }
       
       function drawChart() {
+        // see http://www.highcharts.com/stock/demo/basic-line for more info
         Highcharts.stockChart('chartcontainer', {
             rangeSelector: {
                 selected: 5
@@ -137,17 +156,27 @@
       }
       
       function addStock(sObj) {
-        seriesArr.push(sObj);
+        // only add if symbol doesnt exist
+        var found = false;
+        for(var i = 0; i < seriesArr.length; i++) {
+          if (seriesArr[i].name === sObj.name)
+            found = true;
+        }
+        if (!found) {
+          console.log("ADDING NEW SYMBOL!");
+          seriesArr.push(sObj);
+                 
+          // now add delete button for stock
+          var bstr = '<button id="' + sObj.name + '">' + sObj.name + '</button>';        
+          $("#stockButtons").append(bstr);
+          $("#" + sObj.name).click(function() {removeStock(sObj.name)});
+
+          // let server know new stock was added
+          socket.emit('newstock', { symbol: sObj.name });
+        }
         
         drawChart();
-        
-        // now add delete button for stock
-        var bstr = '<button id="' + sObj.name + '">' + sObj.name + '</button>';        
-        $("#stockButtons").append(bstr);
-        $("#" + sObj.name).click(function() {removeStock(sObj.name)});
-        
-        // let server know new stock was added
-        socket.emit('newstock', { symbol: sObj.name });
+               
       }
       
       function removeStock(symb) {
@@ -167,6 +196,9 @@
         
         // now refresh chart
         drawChart();
+        
+        // let server know new stock was removed
+        socket.emit('delstock', { symbol: symb });
       }
       
       function reqNewStock(optSymb) {
